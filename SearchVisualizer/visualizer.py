@@ -17,6 +17,7 @@ import pygame
 import bfs
 import dfs
 import problems as P
+import scaling as gfx
 import tracer
 
 W, H = 1200, 740
@@ -49,7 +50,7 @@ class Cancelled(Exception):
 
 
 def font(size, bold=False):
-    return pygame.font.SysFont("segoeui,arial,tahoma", size, bold=bold)
+    return gfx.SFont("segoeui,arial,tahoma", size, bold=bold)
 
 
 _mono_cache = {}
@@ -57,7 +58,7 @@ _mono_cache = {}
 
 def mono(size):
     if size not in _mono_cache:
-        _mono_cache[size] = pygame.font.SysFont("consolas,couriernew,dejavusansmono", size)
+        _mono_cache[size] = gfx.SFont("consolas,couriernew,dejavusansmono", size)
     return _mono_cache[size]
 
 
@@ -66,6 +67,42 @@ def compact_state(s):
     if isinstance(s[0], tuple):
         return " | ".join(" ".join(str(v) if v else "_" for v in row) for row in s)
     return str(s)
+
+
+_scope_cache = {}
+
+
+def trace_scopes(src):
+    """Từ mã nguồn [(số dòng, nội dung)], trả về 2 tập số dòng:
+    - loop: thân vòng "for action in ..." (nơi action/child là của node hiện tại)
+    - d   : từ sau dòng "d = ..." tới hết thân vòng while (nơi d là của node hiện tại)"""
+    key = tuple(src)
+    if key in _scope_cache:
+        return _scope_cache[key]
+
+    def indent(t):
+        return len(t) - len(t.lstrip())
+
+    def body_after(i):
+        """Các dòng nằm sau dòng i và thụt vào sâu hơn dòng i."""
+        lines, base = set(), indent(src[i][1])
+        for ln, t in src[i + 1:]:
+            if t.strip() and indent(t) <= base:
+                break
+            lines.add(ln)
+        return lines
+
+    loop, d = set(), set()
+    for i, (ln, t) in enumerate(src):
+        s = t.strip()
+        if s.startswith("for action in"):
+            loop = body_after(i)
+        elif s.startswith("d =") or s.startswith("d="):
+            parent = max(j for j in range(i) if src[j][1].strip()
+                         and indent(src[j][1]) < indent(t))
+            d = {l for l in body_after(parent) if l > ln}
+    _scope_cache[key] = (loop, d)
+    return loop, d
 
 
 def lerp(a, b, t):
@@ -100,8 +137,8 @@ class Button:
         else:
             bg = C.BTN_HOVER if hover else C.PANEL
             fg, bd = C.TEXT, C.BORDER
-        pygame.draw.rect(surf, bg, self.rect, border_radius=8)
-        pygame.draw.rect(surf, bd, self.rect, 1, border_radius=8)
+        gfx.rect(surf, bg, self.rect, border_radius=8)
+        gfx.rect(surf, bd, self.rect, 1, border_radius=8)
         txt = f.render(self.label, True, fg)
         surf.blit(txt, txt.get_rect(center=self.rect.center))
 
@@ -114,9 +151,11 @@ class Button:
 
 class App:
     def __init__(self):
+        gfx.enable_dpi_awareness()
         pygame.init()
         pygame.display.set_caption("BFS / DFS Visualizer - 8-Puzzle & Vacuum Robot")
-        self.screen = pygame.display.set_mode((W, H))
+        gfx.set_scale(gfx.choose_scale(W, H))
+        self.screen = gfx.Canvas(pygame.display.set_mode((gfx.sc(W), gfx.sc(H))))
         self.clock = pygame.time.Clock()
 
         self.f_title = font(24, True)
@@ -507,8 +546,8 @@ class App:
         return [pygame.Rect(ox, oy, rw, rh), pygame.Rect(ox + rw, oy, rw, rh)]
 
     def panel(self, rect):
-        pygame.draw.rect(self.screen, C.PANEL, rect, border_radius=12)
-        pygame.draw.rect(self.screen, C.BORDER, rect, 1, border_radius=12)
+        gfx.rect(self.screen, C.PANEL, rect, border_radius=12)
+        gfx.rect(self.screen, C.BORDER, rect, 1, border_radius=12)
 
     def text(self, s, pos, f=None, color=None, center=False, right=False):
         f = f or self.f
@@ -529,11 +568,11 @@ class App:
             for c in range(3):
                 v = state[r][c]
                 rect = pygame.Rect(x + c * (s + g), y + r * (s + g), s, s)
-                pygame.draw.rect(self.screen, C.TILE_OK if v else C.CELL, rect, border_radius=6)
+                gfx.rect(self.screen, C.TILE_OK if v else C.CELL, rect, border_radius=6)
                 if v:
                     self.text(str(v), rect.center, fnt, C.TILE_TEXT, center=True)
                 if highlight == (r, c):
-                    pygame.draw.rect(self.screen, C.ORANGE, rect.inflate(6, 6), 3, border_radius=8)
+                    gfx.rect(self.screen, C.ORANGE, rect.inflate(6, 6), 3, border_radius=8)
 
     def draw(self):
         self.screen.fill(C.BG)
@@ -544,8 +583,8 @@ class App:
 
     def draw_sidebar(self):
         sb = pygame.Rect(0, 0, SIDEBAR_W, H)
-        pygame.draw.rect(self.screen, C.PANEL, sb)
-        pygame.draw.line(self.screen, C.BORDER, (SIDEBAR_W, 0), (SIDEBAR_W, H))
+        gfx.rect(self.screen, C.PANEL, sb)
+        gfx.line(self.screen, C.BORDER, (SIDEBAR_W, 0), (SIDEBAR_W, H))
         self.text("Search Visualizer", (20, 20), self.f_title)
         self.text("Bài toán", (20, 58), self.f_small, C.MUTED)
         self.text("Thuật toán", (20, 138), self.f_small, C.MUTED)
@@ -555,13 +594,13 @@ class App:
         unit = "dòng/giây" if self.in_trace() else "bước/giây"
         self.text(f"Tốc độ: {sp:g} {unit}", (SIDEBAR_W // 2, 414), self.f, center=True)
 
-        mouse = pygame.mouse.get_pos()
+        mouse = gfx.mouse_pos()
         for b in self.buttons:
             b.draw(self.screen, self.f, mouse)
 
         # Thông tin kết quả
         y = 452
-        pygame.draw.line(self.screen, C.BORDER, (20, y), (SIDEBAR_W - 20, y))
+        gfx.line(self.screen, C.BORDER, (20, y), (SIDEBAR_W - 20, y))
         y += 12
         self.text("Kết quả", (20, y), self.f_h)
         y += 30
@@ -579,8 +618,8 @@ class App:
             r = self.history.get((self.mode, algo))
             box = pygame.Rect(20, y, SIDEBAR_W - 40, 88)
             sel = algo == self.algo
-            pygame.draw.rect(self.screen, C.ACCENT_LIGHT if sel else C.BOX, box, border_radius=8)
-            pygame.draw.rect(self.screen, C.ACCENT if sel else C.BORDER, box, 1, border_radius=8)
+            gfx.rect(self.screen, C.ACCENT_LIGHT if sel else C.BOX, box, border_radius=8)
+            gfx.rect(self.screen, C.ACCENT if sel else C.BORDER, box, 1, border_radius=8)
             self.text(algo, (box.x + 12, box.y + 8), self.f_h, C.ACCENT if sel else C.TEXT)
             if r is None:
                 self.text("Chưa chạy", (box.x + 12, box.y + 36), self.f_small, C.MUTED)
@@ -609,7 +648,7 @@ class App:
         title = "8-Puzzle (ma trận 3x3)" if self.mode == "puzzle" else "Vacuum Robot (1x2)"
         self.text(title, (m.x + 20, m.y + 16), self.f_title)
 
-        mouse = pygame.mouse.get_pos()
+        mouse = gfx.mouse_pos()
         for b in self.tabs:
             b.draw(self.screen, self.f_small, mouse)
 
@@ -640,12 +679,12 @@ class App:
         ox, oy, size, gap = self.board_geom()
         total = 3 * size + 2 * gap
         board = pygame.Rect(ox - 12, oy - 12, total + 24, total + 24)
-        pygame.draw.rect(self.screen, C.BOARD, board, border_radius=14)
+        gfx.rect(self.screen, C.BOARD, board, border_radius=14)
 
         for r in range(3):
             for c in range(3):
                 cell = pygame.Rect(ox + c * (size + gap), oy + r * (size + gap), size, size)
-                pygame.draw.rect(self.screen, C.CELL, cell, border_radius=10)
+                gfx.rect(self.screen, C.CELL, cell, border_radius=10)
 
         moving_val, frm, to = None, None, None
         if s1 is not None:
@@ -665,8 +704,8 @@ class App:
                         y = lerp(oy + frm[0] * (size + gap), oy + to[0] * (size + gap), t)
                     ok = goal[r][c] == v and v != moving_val
                     rect = pygame.Rect(int(x), int(y), size, size)
-                    pygame.draw.rect(self.screen, C.TILE_SHADOW, rect.move(0, 4), border_radius=10)
-                    pygame.draw.rect(self.screen, C.TILE_OK if ok else C.TILE, rect, border_radius=10)
+                    gfx.rect(self.screen, C.TILE_SHADOW, rect.move(0, 4), border_radius=10)
+                    gfx.rect(self.screen, C.TILE_OK if ok else C.TILE, rect, border_radius=10)
                     self.text(str(v), rect.center, self.f_tile, C.TILE_TEXT, center=True)
 
         gx, gy, gs, gg = self.goal_geom()
@@ -675,9 +714,9 @@ class App:
 
         lx = gx + 3 * (gs + gg) + 34
         ly = gy - 28
-        pygame.draw.rect(self.screen, C.TILE_OK, (lx, ly + 2, 16, 16), border_radius=4)
+        gfx.rect(self.screen, C.TILE_OK, (lx, ly + 2, 16, 16), border_radius=4)
         self.text("Ô đúng vị trí đích", (lx + 24, ly), self.f_small, C.MUTED)
-        pygame.draw.rect(self.screen, C.TILE, (lx, ly + 26, 16, 16), border_radius=4)
+        gfx.rect(self.screen, C.TILE, (lx, ly + 26, 16, 16), border_radius=4)
         self.text("Ô chưa đúng vị trí", (lx + 24, ly + 24), self.f_small, C.MUTED)
         self.text("Hành động = hướng di chuyển của ô trống", (lx, ly + 52), self.f_small, C.MUTED)
     def draw_vacuum(self):
@@ -689,12 +728,12 @@ class App:
 
         for i, rect in enumerate(rooms):
             name = "AB"[i]
-            pygame.draw.rect(self.screen, C.FLOOR, rect)
+            gfx.rect(self.screen, C.FLOOR, rect)
             for k in range(1, 7):
                 yy = rect.y + 60 + k * 30
                 if yy < rect.bottom:
-                    pygame.draw.line(self.screen, C.FLOOR_LINE, (rect.x, yy), (rect.right, yy))
-            pygame.draw.rect(self.screen, C.WALL, rect, 4)
+                    gfx.line(self.screen, C.FLOOR_LINE, (rect.x, yy), (rect.right, yy))
+            gfx.rect(self.screen, C.WALL, rect, 4)
             self.text(f"Phòng {name}", (rect.centerx, rect.y + 24), self.f_title, center=True)
 
             alpha = 1.0
@@ -709,7 +748,7 @@ class App:
                     dx = rnd.randint(25, rect.w - 25)
                     dy = rnd.randint(90, rect.h - 25)
                     rad = rnd.randint(4, 9)
-                    pygame.draw.circle(dust, (*C.DIRT, int(230 * alpha)), (dx, dy),
+                    gfx.circle(dust, (*C.DIRT, int(230 * alpha)), (dx, dy),
                                        int(rad * (0.4 + 0.6 * alpha)))
                 self.screen.blit(dust, rect.topleft)
 
@@ -718,8 +757,8 @@ class App:
             col = C.DIRT if st == "D" else C.GREEN
             badge = pygame.Rect(0, 0, 110, 28)
             badge.center = (rect.centerx, rect.y + 58)
-            pygame.draw.rect(self.screen, C.BADGE, badge, border_radius=14)
-            pygame.draw.rect(self.screen, col, badge, 2, border_radius=14)
+            gfx.rect(self.screen, C.BADGE, badge, border_radius=14)
+            gfx.rect(self.screen, col, badge, 2, border_radius=14)
             self.text(label, badge.center, self.f, col, center=True)
 
         cx_a, cx_b = rooms[0].centerx, rooms[1].centerx
@@ -745,15 +784,15 @@ class App:
         if sucking:
             for k in range(3):
                 r = 40 + ((tt * 60 + k * 15) % 45)
-                pygame.draw.circle(self.screen, C.WAVE, (x, y + 10), int(r), 2)
-        pygame.draw.ellipse(self.screen, C.ROBOT_SHADOW, (x - 46, y + 34, 92, 16))
-        pygame.draw.circle(self.screen, C.ROBOT_RING, (x, y), 44)
-        pygame.draw.circle(self.screen, C.ROBOT_BODY, (x, y), 38)
-        pygame.draw.circle(self.screen, C.ACCENT, (x, y), 20)
+                gfx.circle(self.screen, C.WAVE, (x, y + 10), int(r), 2)
+        gfx.ellipse(self.screen, C.ROBOT_SHADOW, (x - 46, y + 34, 92, 16))
+        gfx.circle(self.screen, C.ROBOT_RING, (x, y), 44)
+        gfx.circle(self.screen, C.ROBOT_BODY, (x, y), 38)
+        gfx.circle(self.screen, C.ACCENT, (x, y), 20)
         for ex in (x - 7, x + 7):
-            pygame.draw.circle(self.screen, (255, 255, 255), (ex, y - 4), 5)
-            pygame.draw.circle(self.screen, C.PUPIL, (ex, y - 4), 2)
-        pygame.draw.circle(self.screen, C.ORANGE if sucking else C.GREEN, (x, y - 30), 4)
+            gfx.circle(self.screen, (255, 255, 255), (ex, y - 4), 5)
+            gfx.circle(self.screen, C.PUPIL, (ex, y - 4), 2)
+        gfx.circle(self.screen, C.ORANGE if sucking else C.GREEN, (x, y - 30), 4)
 
     # =========================== TRACE CODE ===========================
     def code_line_surface(self, f, size, text):
@@ -761,7 +800,9 @@ class App:
         key = (size, text)
         surf = self.code_cache.get(key)
         if surf is None:
-            surf = pygame.Surface(f.size(text or " "), pygame.SRCALPHA)
+            # Render ở độ phân giải thật (f.raw) để chữ code không bị mờ
+            raw = f.raw
+            surf = pygame.Surface(raw.size(text or " "), pygame.SRCALPHA)
             x = 0
             for tok in re.findall(r"\w+|\s+|[^\w\s]", text):
                 if keyword.iskeyword(tok):
@@ -774,8 +815,9 @@ class App:
                 else:
                     col = C.TEXT
                 if not tok.isspace():
-                    surf.blit(f.render(tok, True, col), (x, 0))
-                x += f.size(tok)[0]
+                    surf.blit(raw.render(tok, True, col), (x, 0))
+                x += raw.size(tok)[0]
+            surf = gfx.HiSurf(surf)
             self.code_cache[key] = surf
         return surf
 
@@ -799,31 +841,39 @@ class App:
         f = mono(size)
         lh = f.get_linesize() + 1
         box.h = len(src) * lh + 14
-        pygame.draw.rect(self.screen, C.CELL, box, border_radius=10)
-        pygame.draw.rect(self.screen, C.BORDER, box, 1, border_radius=10)
+        gfx.rect(self.screen, C.CELL, box, border_radius=10)
+        gfx.rect(self.screen, C.BORDER, box, 1, border_radius=10)
         for i, (ln, text) in enumerate(src):
             y = box.y + 7 + i * lh
             cur = ln == ev.line
             if cur:
                 row = pygame.Rect(box.x + 4, y - 1, box.w - 8, lh)
-                pygame.draw.rect(self.screen, C.ACCENT_LIGHT, row, border_radius=4)
-                pygame.draw.rect(self.screen, C.ACCENT, (row.x, row.y, 3, row.h))
+                gfx.rect(self.screen, C.ACCENT_LIGHT, row, border_radius=4)
+                gfx.rect(self.screen, C.ACCENT, (row.x, row.y, 3, row.h))
             num = f.render(str(ln), True, C.ACCENT if cur else C.DISABLED_FG)
             self.screen.blit(num, num.get_rect(topright=(box.x + gutter, y)))
             self.screen.blit(self.code_line_surface(f, size, text), (box.x + gutter + 12, y))
 
         # --- Giá trị các biến tại thời điểm này ---
+        # action/child chỉ có nghĩa bên trong vòng "for action in ...", d chỉ có nghĩa
+        # sau dòng "d = depth(node)". Ngoài đó biến vẫn giữ giá trị cũ của node
+        # trước -> ẩn đi để không bị hiểu nhầm (vd: child cũ hiện ra lúc tìm thấy đích).
+        loop_lines, d_lines = trace_scopes(src)
+        action = ev.action if ev.line in loop_lines else None
+        child = ev.child if ev.line in loop_lines else None
+        d = ev.d if ev.line in d_lines else None
+
         y0 = box.bottom + 14
         x = m.x + 20
         self.trace_state_cell("node.state", ev.node, x, y0)
         x += 150
         self.text("action", (x, y0), self.f_mono, C.MUTED)
-        self.text(repr(ev.action) if ev.action is not None else "—", (x, y0 + 24), self.f_h)
+        self.text(repr(action) if action is not None else "—", (x, y0 + 24), self.f_h)
         if r["algo"] == "DFS":
             self.text("d", (x, y0 + 56), self.f_mono, C.MUTED)
-            self.text(str(ev.d) if ev.d is not None else "—", (x + 20, y0 + 52), self.f_h)
+            self.text(str(d) if d is not None else "—", (x + 20, y0 + 52), self.f_h)
         x += 120
-        self.trace_state_cell("child.state", ev.child, x, y0)
+        self.trace_state_cell("child.state", child, x, y0)
         if ev.ret:
             msg, col = ("Tìm thấy đích!", C.GREEN) if ev.found else ("Không có lời giải", C.RED)
             self.text(msg, (m.right - 20, y0 + 30), self.f_h, col, right=True)
@@ -845,25 +895,25 @@ class App:
                 rect = pygame.Rect(x + c * (s + g), y + r * (s + g), s, s)
                 if v:
                     col = C.TILE_OK if goal[r][c] == v else C.TILE
-                    pygame.draw.rect(self.screen, col, rect, border_radius=5)
+                    gfx.rect(self.screen, col, rect, border_radius=5)
                     self.text(str(v), rect.center, self.f_tile_tiny, C.TILE_TEXT, center=True)
                 else:
-                    pygame.draw.rect(self.screen, C.CELL, rect, border_radius=5)
-                    pygame.draw.rect(self.screen, C.BORDER, rect, 1, border_radius=5)
+                    gfx.rect(self.screen, C.CELL, rect, border_radius=5)
+                    gfx.rect(self.screen, C.BORDER, rect, 1, border_radius=5)
 
     def draw_mini_vacuum(self, state, x, y):
         pos, a, b = state
         for i, (name, st) in enumerate((("A", a), ("B", b))):
             rect = pygame.Rect(x + i * 56, y, 56, 44)
-            pygame.draw.rect(self.screen, C.FLOOR, rect)
-            pygame.draw.rect(self.screen, C.WALL, rect, 2)
+            gfx.rect(self.screen, C.FLOOR, rect)
+            gfx.rect(self.screen, C.WALL, rect, 2)
             self.text(name, (rect.x + 6, rect.y + 3), self.f_small, C.MUTED)
             if st == "D":
                 for dx, dy in ((14, 30), (26, 22), (38, 32), (44, 18)):
-                    pygame.draw.circle(self.screen, C.DIRT, (rect.x + dx, rect.y + dy), 4)
+                    gfx.circle(self.screen, C.DIRT, (rect.x + dx, rect.y + dy), 4)
             if pos == name:
-                pygame.draw.circle(self.screen, C.ROBOT_BODY, (rect.centerx + 8, rect.centery + 4), 11)
-                pygame.draw.circle(self.screen, C.ACCENT, (rect.centerx + 8, rect.centery + 4), 5)
+                gfx.circle(self.screen, C.ROBOT_BODY, (rect.centerx + 8, rect.centery + 4), 11)
+                gfx.circle(self.screen, C.ACCENT, (rect.centerx + 8, rect.centery + 4), 5)
         self.text(str(state), (x, y + 50), self.f_small, C.MUTED)
 
     def draw_trace_list(self):
@@ -909,7 +959,7 @@ class App:
 
         # --- explored ---
         y += 14
-        pygame.draw.line(self.screen, C.BORDER, (x, y), (lr.right - 14, y))
+        gfx.line(self.screen, C.BORDER, (x, y), (lr.right - 14, y))
         y += 12
         self.text("explored", (x, y), self.f_h)
         self.text("(set)" if is_queue else "(dict)", (x + 82, y + 2), self.f_small, C.MUTED)
@@ -958,7 +1008,7 @@ class App:
             ry = inner.y + (i - self.list_scroll) * row_h
             row = pygame.Rect(inner.x, ry, inner.w, row_h - 2)
             if i == self.step:
-                pygame.draw.rect(self.screen, C.ACCENT_LIGHT, row, border_radius=6)
+                gfx.rect(self.screen, C.ACCENT_LIGHT, row, border_radius=6)
             label = "Bắt đầu" if i == 0 else acts[i - 1]
             col = C.ACCENT if i == self.step else (C.MUTED if i < self.step else C.TEXT)
             self.text(f"{i:>4}", (row.x + 8, row.y + 3), self.f_small, C.MUTED)
@@ -973,7 +1023,7 @@ class App:
         if n > visible:
             bar_h = max(30, inner.h * visible // n)
             bar_y = inner.y + (inner.h - bar_h) * self.list_scroll // max(1, n - visible)
-            pygame.draw.rect(self.screen, C.SCROLL, (lr.right - 6, bar_y, 3, bar_h), border_radius=2)
+            gfx.rect(self.screen, C.SCROLL, (lr.right - 6, bar_y, 3, bar_h), border_radius=2)
 
     def list_click(self, pos):
         if not self.result or self.in_trace():
@@ -987,15 +1037,16 @@ class App:
 
     def handle_event(self, e):
         if e.type == pygame.MOUSEBUTTONDOWN and e.button in (1, 3):
-            if e.button == 1 and any(b.handle(e.pos) for b in self.buttons + self.tabs):
+            pos = gfx.unscale_pos(e.pos)
+            if e.button == 1 and any(b.handle(pos) for b in self.buttons + self.tabs):
                 return
-            if self.list_rect().collidepoint(e.pos):
+            if self.list_rect().collidepoint(pos):
                 if e.button == 1:
-                    self.list_click(e.pos)
-            elif self.main_rect().collidepoint(e.pos):
-                self.handle_board_click(e.pos, e.button)
+                    self.list_click(pos)
+            elif self.main_rect().collidepoint(pos):
+                self.handle_board_click(pos, e.button)
         elif e.type == pygame.MOUSEWHEEL:
-            if self.list_rect().collidepoint(pygame.mouse.get_pos()):
+            if self.list_rect().collidepoint(gfx.mouse_pos()):
                 self.follow = False
                 self.list_scroll -= e.y * 3
         elif e.type == pygame.KEYDOWN:

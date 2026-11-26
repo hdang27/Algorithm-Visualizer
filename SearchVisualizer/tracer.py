@@ -1,24 +1,10 @@
-# Ghi lại quá trình thực thi từng dòng của hàm BFS/DFS (dùng sys.settrace),
-# để giao diện có thể "trace code": tô sáng dòng đang chạy + hiển thị giá trị biến.
-# Không sửa gì trong bfs.py / dfs.py - chạy chính code gốc.
-
 import inspect
 import sys
 from collections import namedtuple
 
-MAX_EVENTS = 100000 # số dòng thực thi tối đa được ghi lại (tránh tốn bộ nhớ)
-SHOW = 6             # số phần tử đầu/cuối của frontier & explored được lưu mỗi bước
+MAX_EVENTS = 100000
+SHOW = 6
 
-# line      : số dòng (trong file) sắp được thực thi
-# node/child: state của biến node/child (None nếu chưa có)
-# action, d : giá trị biến action và d (d chỉ có trong DFS)
-# flen      : số phần tử trong frontier
-# fhead     : các phần tử đầu frontier (toàn bộ nếu frontier ngắn)
-# ftail     : các phần tử cuối frontier (rỗng nếu đã nằm hết trong fhead)
-# elen      : số phần tử trong explored
-# erecent   : các trạng thái vừa được thêm vào explored gần nhất (mới nhất ở cuối)
-# ret       : True nếu đây là lúc hàm return
-# found     : hàm return lời giải (True) hay None (False)
 Event = namedtuple("Event", "line node action child d flen fhead ftail elen erecent ret found")
 
 
@@ -27,7 +13,6 @@ class TraceLimit(Exception):
 
 
 def source_lines(func):
-    """Mã nguồn của hàm dưới dạng [(số dòng, nội dung)], bỏ comment cho gọn."""
     src, start = inspect.getsourcelines(func)
     out = []
     for i, line in enumerate(src):
@@ -41,12 +26,10 @@ def source_lines(func):
 
 
 def run_traced(func, args=(), kwargs=None, max_events=MAX_EVENTS):
-    """Chạy func(*args, **kwargs) và ghi lại từng dòng thực thi bên trong func.
-    Trả về (events, truncated). Dừng sớm khi đã ghi đủ max_events dòng."""
     kwargs = kwargs or {}
     code = func.__code__
     events = []
-    ex_order = []           # thứ tự các state được thêm vào explored
+    ex_order = []
     last_len = [0]
 
     def snapshot(frame, line, ret=False, found=False):
@@ -74,7 +57,6 @@ def run_traced(func, args=(), kwargs=None, max_events=MAX_EVENTS):
             else:
                 erecent = tuple((s, None) for s in ex_order[-SHOW:])
 
-        # Phần lớn các dòng không làm đổi frontier/explored -> dùng lại tuple cũ để tiết kiệm bộ nhớ
         if events:
             prev = events[-1]
             if fhead == prev.fhead:
@@ -114,7 +96,6 @@ def run_traced(func, args=(), kwargs=None, max_events=MAX_EVENTS):
     finally:
         sys.settrace(None)
 
-    # Khi bị dừng do giới hạn, sự kiện cuối là "return" giả do exception -> bỏ đi
     if truncated and events and events[-1].ret:
         events.pop()
     return events, truncated
