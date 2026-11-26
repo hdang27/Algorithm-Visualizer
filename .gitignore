@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+
+# Môi trường ảo
+.venv/
+venv/
+env/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# IDE / editor
+.vscode/
+.idea/
+*.swp
+
+# Hệ điều hành
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# File nén
+*.zip
+*.rar
