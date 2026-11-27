@@ -1,11 +1,8 @@
 # Algorithm Visualizer
 
-A collection of interactive **algorithm visualizers** written in Python with [pygame](https://www.pygame.org/).
-Each visualizer lets you run an algorithm, step through its solution, and trace the code line by line as it executes.
-
-| Visualizer | Algorithms | Problems |
-|---|---|---|
-| [Search Visualizer](#search-visualizer) | BFS, DFS, UCS | 8-Puzzle, Vacuum Robot |
+An interactive **search algorithm visualizer** written in Python with [pygame](https://www.pygame.org/).
+Run BFS, DFS or UCS on the 8-Puzzle or the Vacuum Robot problem, step through the solution,
+and trace the code line by line as it executes.
 
 ## Repository structure
 
@@ -13,16 +10,20 @@ Each visualizer lets you run an algorithm, step through its solution, and trace 
 Algorithm-Visualizer/
 ├── README.md
 ├── .gitignore
-└── SearchVisualizer/      # BFS / DFS / UCS on 8-Puzzle and Vacuum Robot
+├── .gitattributes
+├── visualizer.py      # pygame UI (entry point)
+├── bfs.py             # BFS
+├── dfs.py             # DFS
+├── ucs.py             # UCS
+├── UCS.ipynb          # UCS notebook with runnable examples
+├── problems.py        # 8-Puzzle and Vacuum Robot definitions
+├── tracer.py          # line-by-line tracing for the "Trace code" tab
+└── scaling.py         # high-DPI scaling helpers
 ```
 
-Each visualizer lives in its own folder and runs on its own.
+## Algorithms and problems
 
----
-
-## Search Visualizer
-
-Visualizes three search algorithms:
+The visualizer supports three search algorithms:
 
 | Algorithm | Frontier | What it finds |
 |---|---|---|
@@ -37,7 +38,7 @@ They run on two problems:
 - **Vacuum Robot**: a robot in two rooms, A and B. Each turn it chooses `Left`, `Right` or `Suck`
   until both rooms are clean.
 
-### Action costs (UCS)
+## Action costs (UCS)
 
 UCS uses these action costs. BFS and DFS ignore them, so the visualizer shows costs only for UCS.
 
@@ -48,7 +49,7 @@ UCS uses these action costs. BFS and DFS ignore them, so the visualizer shows co
 
 Because horizontal moves cost more, UCS can return a solution with more steps than BFS but a lower total cost.
 
-### Features
+## Features
 
 - Choose the problem, the algorithm (BFS / DFS / UCS) and the initial state (random, or edit it with the mouse).
 - **"Lời giải" (Solution) tab**: animated playback of the solution, step forward/backward, speed control
@@ -63,17 +64,16 @@ Because horizontal moves cost more, UCS can return a solution with more steps th
 
 > The user interface is in Vietnamese.
 
-### Installation
+## Installation
 
 Requires **Python 3.8+** and pygame (or pygame-ce).
 
 ```bash
 pip install pygame
-cd SearchVisualizer
 python visualizer.py
 ```
 
-### Usage
+## Usage
 
 1. Pick a problem (**8-Puzzle** / **Vacuum**) and an algorithm (**BFS** / **DFS** / **UCS**) in the left sidebar.
 2. Optionally change the initial state:
@@ -93,7 +93,7 @@ python visualizer.py
 | `+` / `-` | Speed up / slow down |
 | `T` | Switch between the "Lời giải" and "Trace code" tabs |
 
-### Source files
+## Source files
 
 | File | Contents |
 |---|---|
@@ -106,7 +106,7 @@ python visualizer.py
 | `tracer.py` | Records every executed line of the search function with `sys.settrace` for the "Trace code" tab |
 | `scaling.py` | High-DPI scaling helpers for the pygame window |
 
-### Notes
+## Notes
 
 - **DFS depth limit**: unbounded DFS can return solutions tens of thousands of steps long, because it
   wanders through a huge number of states before reaching the goal. DFS is therefore limited to
