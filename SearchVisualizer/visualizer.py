@@ -16,6 +16,7 @@ import pygame
 
 import bfs
 import dfs
+import ucs
 import problems as P
 import scaling as gfx
 import tracer
@@ -28,6 +29,9 @@ FPS = 60
 SPEEDS = [0.5, 1, 2, 4, 8, 16, 32, 64, 128]
 
 DFS_MAX_DEPTH = {"puzzle": 31, "vacuum": 3}
+ALGOS = ("BFS", "DFS", "UCS")
+MODULES = {"BFS": bfs, "DFS": dfs, "UCS": ucs}
+FRONTIER_KIND = {"BFS": "(Queue)", "DFS": "(Stack)", "UCS": "(Priority Queue)"}
 
 C = SimpleNamespace(
     BG=(8, 8, 8), PANEL=(18, 18, 18), BORDER=(48, 48, 48), TEXT=(240, 240, 240),
@@ -114,16 +118,17 @@ def ease(t):
 
 
 class Button:
-    def __init__(self, rect, label, on_click, kind="normal"):
+    def __init__(self, rect, label, on_click, kind="normal", small=False):
         self.rect = pygame.Rect(rect)
         self.label = label
         self.on_click = on_click
         self.kind = kind
+        self.small = small
         self.active = False
         self.enabled = True
         self.visible = True
 
-    def draw(self, surf, f, mouse):
+    def draw(self, surf, f, mouse, f_small=None):
         if not self.visible:
             return
         hover = self.rect.collidepoint(mouse) and self.enabled
@@ -139,7 +144,7 @@ class Button:
             fg, bd = C.TEXT, C.BORDER
         gfx.rect(surf, bg, self.rect, border_radius=8)
         gfx.rect(surf, bd, self.rect, 1, border_radius=8)
-        txt = f.render(self.label, True, fg)
+        txt = (f_small if self.small and f_small else f).render(self.label, True, fg)
         surf.blit(txt, txt.get_rect(center=self.rect.center))
 
     def handle(self, pos):
@@ -153,7 +158,7 @@ class App:
     def __init__(self):
         gfx.enable_dpi_awareness()
         pygame.init()
-        pygame.display.set_caption("BFS / DFS Visualizer - 8-Puzzle & Vacuum Robot")
+        pygame.display.set_caption("BFS / DFS / UCS Visualizer -8-Puzzle & Vacuum Robot")
         gfx.set_scale(gfx.choose_scale(W, H))
         self.screen = gfx.Canvas(pygame.display.set_mode((gfx.sc(W), gfx.sc(H))))
         self.clock = pygame.time.Clock()
@@ -169,7 +174,7 @@ class App:
         self.code_cache = {}          # (cỡ chữ, dòng code) -> surface đã tô màu cú pháp
 
         self.mode = "puzzle"          # "puzzle" | "vacuum"
-        self.algo = "BFS"             # "BFS" | "DFS"
+        self.algo = "BFS"             # "BFS" | "DFS" | "UCS"
         self.puzzle_init = P.PUZZLE_INITIAL
         self.puzzle_goal = P.PUZZLE_GOAL
         self.vacuum_init = P.VACUUM_INITIAL
@@ -199,8 +204,12 @@ class App:
         half = (w - 10) // 2
         self.btn_puzzle = Button((x, 80, half, 38), "8-Puzzle", lambda: self.set_mode("puzzle"))
         self.btn_vacuum = Button((x + half + 10, 80, half, 38), "Vacuum", lambda: self.set_mode("vacuum"))
-        self.btn_bfs = Button((x, 160, half, 38), "BFS (Queue)", lambda: self.set_algo("BFS"))
-        self.btn_dfs = Button((x + half + 10, 160, half, 38), "DFS (Stack)", lambda: self.set_algo("DFS"))
+        third = (w - 12) // 3
+        self.btn_bfs = Button((x, 160, third, 38), "BFS (Queue)", lambda: self.set_algo("BFS"), small=True)
+        self.btn_dfs = Button((x + third + 6, 160, third, 38), "DFS (Stack)", lambda: self.set_algo("DFS"),
+                              small=True)
+        self.btn_ucs = Button((x + w - third, 160, third, 38), "UCS (PQ)", lambda: self.set_algo("UCS"),
+                              small=True)
         self.btn_solve = Button((x, 215, w, 44), "Giải", self.solve, kind="primary")
         self.btn_shuffle = Button((x, 268, half, 36), "Xáo trộn", self.shuffle)
         self.btn_reset = Button((x + half + 10, 268, half, 36), "Mặc định", self.reset_initial)
@@ -215,7 +224,7 @@ class App:
         self.btn_slower = Button((x, y + 48, 40, 32), "-", lambda: self.change_speed(-1))
         self.btn_faster = Button((x + w - 40, y + 48, 40, 32), "+", lambda: self.change_speed(1))
 
-        self.buttons = [self.btn_puzzle, self.btn_vacuum, self.btn_bfs, self.btn_dfs,
+        self.buttons = [self.btn_puzzle, self.btn_vacuum, self.btn_bfs, self.btn_dfs, self.btn_ucs,
                         self.btn_solve, self.btn_shuffle, self.btn_reset,
                         self.btn_first, self.btn_prev, self.btn_play, self.btn_next,
                         self.btn_last, self.btn_slower, self.btn_faster]
@@ -240,12 +249,13 @@ class App:
         self.btn_vacuum.active = self.mode == "vacuum"
         self.btn_bfs.active = self.algo == "BFS"
         self.btn_dfs.active = self.algo == "DFS"
+        self.btn_ucs.active = self.algo == "UCS"
         self.btn_solve.label = "Hủy tìm kiếm" if self.searching else f"Giải bằng {self.algo}"
         self.btn_play.label = "Dừng" if self.playing else "Chạy"
         has = self.result is not None and not self.searching
         for b in (self.btn_first, self.btn_prev, self.btn_play, self.btn_next, self.btn_last):
             b.enabled = has
-        for b in (self.btn_puzzle, self.btn_vacuum, self.btn_bfs, self.btn_dfs,
+        for b in (self.btn_puzzle, self.btn_vacuum, self.btn_bfs, self.btn_dfs, self.btn_ucs,
                   self.btn_shuffle, self.btn_reset):
             b.enabled = not self.searching
         self.btn_shuffle.label = "Xáo trộn" if self.mode == "puzzle" else "Ngẫu nhiên"
@@ -373,13 +383,18 @@ class App:
         self.search_thread.start()
 
     def _worker(self, mode, algo, init, goal):
-        module = bfs if algo == "BFS" else dfs
+        module = MODULES[algo]
+        func = getattr(module, algo)
+        kwargs = {"max_depth": DFS_MAX_DEPTH[mode]} if algo == "DFS" else {}
         expanded = [0]
 
         if mode == "puzzle":
             base_actions, result_fn = P.get_actions_8puzzle, P.get_result_8puzzle
+            cost_fn = P.get_cost_8puzzle
         else:
             base_actions, result_fn = P.get_actions_vacuum, P.get_result_vacuum
+            cost_fn = P.get_cost_vacuum
+        extra = {"action_cost": cost_fn} if algo == "UCS" else {}
 
         def actions_fn(state):
             if self.cancel_flag:
@@ -392,13 +407,11 @@ class App:
             goal_condition=goal,
             actions=actions_fn,
             result=result_fn,
+            **extra,
         )
         t0 = time.perf_counter()
         try:
-            if algo == "BFS":
-                res = module.BFS(problem)
-            else:
-                res = module.DFS(problem, max_depth=DFS_MAX_DEPTH[mode])
+            res = func(problem, **kwargs)
         except Cancelled:
             self.pending = {"cancelled": True}
             return
@@ -415,8 +428,10 @@ class App:
             acts.append(node.action)
             node = node.parent
         acts.reverse()
+        path = res["path"]
+        costs = [cost_fn(path[i], a, path[i + 1]) for i, a in enumerate(acts)]
 
-        # Chạy lại chính hàm BFS/DFS dưới sys.settrace để ghi lại từng dòng code
+        # Chạy lại chính hàm BFS/DFS/UCS dưới sys.settrace để ghi lại từng dòng code
         # (chạy riêng, sau khi đã đo thời gian, nên không ảnh hưởng số liệu ở trên)
         def trace_actions(state):
             if self.cancel_flag:
@@ -424,17 +439,17 @@ class App:
             return base_actions(state)
 
         trace_problem = module.Problem(initial_state=init, goal_condition=goal,
-                                       actions=trace_actions, result=result_fn)
-        func = module.BFS if algo == "BFS" else module.DFS
-        kwargs = {} if algo == "BFS" else {"max_depth": DFS_MAX_DEPTH[mode]}
+                                       actions=trace_actions, result=result_fn, **extra)
         try:
-            events, truncated = tracer.run_traced(func, (trace_problem,), kwargs)
+            events, truncated = tracer.run_traced(func, (trace_problem,), kwargs,
+                                                  priority=algo == "UCS")
         except Cancelled:
             self.pending = {"cancelled": True}
             return
 
-        self.pending = {"mode": mode, "algo": algo, "found": True, "path": res["path"],
-                        "actions": acts, "expanded": expanded[0], "time": elapsed,
+        self.pending = {"mode": mode, "algo": algo, "found": True, "path": path,
+                        "actions": acts, "costs": costs, "cost": sum(costs),
+                        "expanded": expanded[0], "time": elapsed,
                         "trace": events, "trace_src": tracer.source_lines(func),
                         "trace_truncated": truncated}
 
@@ -596,7 +611,7 @@ class App:
 
         mouse = gfx.mouse_pos()
         for b in self.buttons:
-            b.draw(self.screen, self.f, mouse)
+            b.draw(self.screen, self.f, mouse, self.f_small)
 
         # Thông tin kết quả
         y = 452
@@ -614,22 +629,24 @@ class App:
             self.text(self.message, (20, y), self.f, C.RED)
             y += 26
 
-        for algo in ("BFS", "DFS"):
+        for algo in ALGOS:
             r = self.history.get((self.mode, algo))
-            box = pygame.Rect(20, y, SIDEBAR_W - 40, 88)
+            box = pygame.Rect(20, y, SIDEBAR_W - 40, 68)
             sel = algo == self.algo
             gfx.rect(self.screen, C.ACCENT_LIGHT if sel else C.BOX, box, border_radius=8)
             gfx.rect(self.screen, C.ACCENT if sel else C.BORDER, box, 1, border_radius=8)
-            self.text(algo, (box.x + 12, box.y + 8), self.f_h, C.ACCENT if sel else C.TEXT)
+            self.text(algo, (box.x + 12, box.y + 5), self.f_h, C.ACCENT if sel else C.TEXT)
             if r is None:
-                self.text("Chưa chạy", (box.x + 12, box.y + 36), self.f_small, C.MUTED)
+                self.text("Chưa chạy", (box.x + 12, box.y + 32), self.f_small, C.MUTED)
             elif not r["found"]:
-                self.text("Không tìm thấy lời giải", (box.x + 12, box.y + 36), self.f_small, C.RED)
+                self.text("Không tìm thấy lời giải", (box.x + 12, box.y + 32), self.f_small, C.RED)
             else:
-                self.text(f"Số bước lời giải: {len(r['actions'])}", (box.x + 12, box.y + 32), self.f_small)
-                self.text(f"Số node mở rộng: {r['expanded']}", (box.x + 12, box.y + 49), self.f_small)
-                self.text(f"Thời gian: {r['time'] * 1000:.1f} ms", (box.x + 12, box.y + 66), self.f_small)
-            y += 96
+                self.text(f"{r['time'] * 1000:.1f} ms", (box.right - 12, box.y + 8), self.f_small,
+                          C.MUTED, right=True)
+                self.text(f"Số bước: {len(r['actions'])}   •   Chi phí: {r['cost']}",
+                          (box.x + 12, box.y + 28), self.f_small)
+                self.text(f"Số node mở rộng: {r['expanded']}", (box.x + 12, box.y + 46), self.f_small)
+            y += 74
 
 
     def current_states(self):
@@ -659,7 +676,8 @@ class App:
         if self.result:
             n = len(self.result["path"]) - 1
             act = self.result["actions"][self.step - 1] if self.step > 0 else "Bắt đầu"
-            sub = f"{self.algo}  •  Bước {self.step}/{n}  •  Hành động: {act}"
+            g = sum(self.result["costs"][:self.step])
+            sub = f"{self.algo}  •  Bước {self.step}/{n}  •  Hành động: {act}  •  g = {g}"
             if self.step == n:
                 sub += "  •  ĐẠT ĐÍCH"
             self.text(sub, (m.x + 20, m.y + 54), self.f, C.ACCENT)
@@ -719,6 +737,7 @@ class App:
         gfx.rect(self.screen, C.TILE, (lx, ly + 26, 16, 16), border_radius=4)
         self.text("Ô chưa đúng vị trí", (lx + 24, ly + 24), self.f_small, C.MUTED)
         self.text("Hành động = hướng di chuyển của ô trống", (lx, ly + 52), self.f_small, C.MUTED)
+        self.text("Chi phí: Up/Down = 1, Left/Right = 2", (lx, ly + 74), self.f_small, C.MUTED)
     def draw_vacuum(self):
         s0, s1, t = self.current_states()
         rooms = self.room_rects()
@@ -778,6 +797,7 @@ class App:
         self.text("Đích: ('A','C','C') hoặc ('B','C','C')", (m.centerx, ty + 30), self.f, C.MUTED, center=True)
         self.text("Mỗi lượt robot làm 1 trong 3 hành động: Left, Right, Suck", (m.centerx, ty + 56),
                   self.f, C.MUTED, center=True)
+        self.text("Chi phí: Suck = 1, Left/Right = 2", (m.centerx, ty + 82), self.f, C.MUTED, center=True)
 
     def draw_robot(self, x, y, sucking):
         tt = pygame.time.get_ticks() / 1000
@@ -810,7 +830,8 @@ class App:
                 elif tok.isdigit():
                     col = C.ORANGE
                 elif tok in ("Node", "Queue", "Stack", "enqueue", "dequeue", "push", "pop",
-                             "is_empty", "child_node", "solution", "depth", "set", "len"):
+                             "is_empty", "child_node", "solution", "depth", "set", "len",
+                             "PriorityQueue", "find_in_frontier", "heapq", "heapify"):
                     col = (125, 200, 255)
                 else:
                     col = C.TEXT
@@ -872,6 +893,11 @@ class App:
         if r["algo"] == "DFS":
             self.text("d", (x, y0 + 56), self.f_mono, C.MUTED)
             self.text(str(d) if d is not None else "—", (x + 20, y0 + 52), self.f_h)
+        elif r["algo"] == "UCS":
+            self.text("node.g", (x, y0 + 56), self.f_mono, C.MUTED)
+            self.text(str(ev.ng) if ev.node is not None else "—", (x + 56, y0 + 52), self.f_h)
+            self.text("child.g", (x, y0 + 84), self.f_mono, C.MUTED)
+            self.text(str(ev.cg) if child is not None else "—", (x + 64, y0 + 80), self.f_h)
         x += 120
         self.trace_state_cell("child.state", child, x, y0)
         if ev.ret:
@@ -921,17 +947,23 @@ class App:
         self.panel(lr)
         r = self.result
         ev = r["trace"][self.tstep]
-        is_queue = r["algo"] == "BFS"
+        is_queue = r["algo"] != "DFS"
+        is_pq = r["algo"] == "UCS"
         x, y = lr.x + 14, lr.y + 14
         row_h = 21
 
         # --- frontier ---
         self.text("frontier", (x, y), self.f_h)
-        self.text("(Queue)" if is_queue else "(Stack)", (x + 76, y + 2), self.f_small, C.MUTED)
+        self.text(FRONTIER_KIND[r["algo"]], (x + 76, y + 2), self.f_small, C.MUTED)
         self.text(f"{ev.flen} phần tử", (lr.right - 14, y + 2), self.f_small, C.ACCENT, right=True)
         y += 24
-        self.text("↑ đầu hàng đợi (dequeue)" if is_queue else "↑ đỉnh stack (pop)",
-                  (x, y), self.f_small, C.MUTED)
+        if is_pq:
+            hint = "↑ g nhỏ nhất (dequeue), xếp theo g"
+        elif is_queue:
+            hint = "↑ đầu hàng đợi (dequeue)"
+        else:
+            hint = "↑ đỉnh stack (pop)"
+        self.text(hint, (x, y), self.f_small, C.MUTED)
         y += 24
 
         n = ev.flen
@@ -952,9 +984,11 @@ class App:
             if item is None:
                 self.text(f"… {hidden} phần tử nữa …", (x + 34, y), self.f_small, C.MUTED)
             else:
-                i, s = item
+                i, (s, g) = item
                 self.text(f"[{i}]", (x, y), self.f_mono, C.DISABLED_FG)
                 self.text(compact_state(s), (x + 48, y), self.f_mono, C.TEXT)
+                if is_pq:
+                    self.text(f"g={g}", (lr.right - 14, y), self.f_mono, C.MUTED, right=True)
             y += row_h
 
         # --- explored ---
@@ -962,7 +996,7 @@ class App:
         gfx.line(self.screen, C.BORDER, (x, y), (lr.right - 14, y))
         y += 12
         self.text("explored", (x, y), self.f_h)
-        self.text("(set)" if is_queue else "(dict)", (x + 82, y + 2), self.f_small, C.MUTED)
+        self.text("(dict)" if r["algo"] == "DFS" else "(set)", (x + 82, y + 2), self.f_small, C.MUTED)
         self.text(f"{ev.elen} trạng thái", (lr.right - 14, y + 2), self.f_small, C.ACCENT, right=True)
         y += 24
         self.text("mới thêm gần nhất ở trên", (x, y), self.f_small, C.MUTED)

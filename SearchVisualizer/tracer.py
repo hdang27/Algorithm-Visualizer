@@ -1,11 +1,12 @@
 import inspect
 import sys
 from collections import namedtuple
+from operator import attrgetter
 
 MAX_EVENTS = 100000
 SHOW = 6
 
-Event = namedtuple("Event", "line node action child d flen fhead ftail elen erecent ret found")
+Event = namedtuple("Event", "line node action child d ng cg flen fhead ftail elen erecent ret found")
 
 
 class TraceLimit(Exception):
@@ -25,12 +26,17 @@ def source_lines(func):
     return out
 
 
-def run_traced(func, args=(), kwargs=None, max_events=MAX_EVENTS):
+def item(n):
+    return n.state, getattr(n, "path_cost", None)
+
+
+def run_traced(func, args=(), kwargs=None, max_events=MAX_EVENTS, priority=False):
     kwargs = kwargs or {}
     code = func.__code__
     events = []
     ex_order = []
     last_len = [0]
+    order_cache = [None, None]
 
     def snapshot(frame, line, ret=False, found=False):
         L = frame.f_locals
@@ -40,11 +46,18 @@ def run_traced(func, args=(), kwargs=None, max_events=MAX_EVENTS):
         flen, fhead, ftail = 0, (), ()
         if frontier is not None:
             flen = len(frontier)
+            items = frontier
+            if priority:
+                sig = tuple(map(id, frontier))
+                if sig != order_cache[0]:
+                    order_cache[0] = sig
+                    order_cache[1] = sorted(frontier, key=attrgetter("path_cost"))
+                items = order_cache[1]
             if flen <= 2 * SHOW:
-                fhead = tuple(n.state for n in frontier)
+                fhead = tuple(map(item, items))
             else:
-                fhead = tuple(n.state for n in frontier[:SHOW])
-                ftail = tuple(n.state for n in frontier[-SHOW:])
+                fhead = tuple(map(item, items[:SHOW]))
+                ftail = tuple(map(item, items[-SHOW:]))
 
         elen, erecent = 0, ()
         if explored is not None:
@@ -71,6 +84,8 @@ def run_traced(func, args=(), kwargs=None, max_events=MAX_EVENTS):
                      action=L.get("action"),
                      child=child.state if child is not None else None,
                      d=L.get("d"),
+                     ng=getattr(node, "path_cost", None),
+                     cg=getattr(child, "path_cost", None),
                      flen=flen, fhead=fhead, ftail=ftail,
                      elen=elen, erecent=erecent,
                      ret=ret, found=found)

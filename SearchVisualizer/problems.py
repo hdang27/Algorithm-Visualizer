@@ -47,6 +47,12 @@ def get_result_8puzzle(state, action):
     return tuple(tuple(row) for row in grid)
 
 
+def get_cost_8puzzle(state, action, new_state):
+    if action in ('Up', 'Down'):
+        return 1
+    return 2
+
+
 VACUUM_INITIAL = ('A', 'D', 'D')
 
 
@@ -74,3 +80,9 @@ def get_result_vacuum(state, action):
         return ('B', status_A, status_B)
 
     return state
+
+
+def get_cost_vacuum(state, action, new_state):
+    if action == 'Suck':
+        return 1
+    return 2
