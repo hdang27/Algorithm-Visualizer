@@ -31,7 +31,7 @@ SPEEDS = [0.5, 1, 2, 4, 8, 16, 32, 64, 128]
 DFS_MAX_DEPTH = {"puzzle": 31, "vacuum": 3}
 ALGOS = ("BFS", "DFS", "UCS")
 MODULES = {"BFS": bfs, "DFS": dfs, "UCS": ucs}
-FRONTIER_KIND = {"BFS": "(Queue)", "DFS": "(Stack)", "UCS": "(Priority Queue)"}
+FRONTIER_KIND = {"BFS": "(Queue)", "DFS": "(Stack)", "UCS": "(PQ)"}
 
 C = SimpleNamespace(
     BG=(8, 8, 8), PANEL=(18, 18, 18), BORDER=(48, 48, 48), TEXT=(240, 240, 240),
@@ -643,8 +643,10 @@ class App:
             else:
                 self.text(f"{r['time'] * 1000:.1f} ms", (box.right - 12, box.y + 8), self.f_small,
                           C.MUTED, right=True)
-                self.text(f"Số bước: {len(r['actions'])}   •   Chi phí: {r['cost']}",
-                          (box.x + 12, box.y + 28), self.f_small)
+                line = f"Số bước: {len(r['actions'])}"
+                if algo == "UCS":
+                    line += f"   •   Chi phí: {r['cost']}"
+                self.text(line, (box.x + 12, box.y + 28), self.f_small)
                 self.text(f"Số node mở rộng: {r['expanded']}", (box.x + 12, box.y + 46), self.f_small)
             y += 74
 
@@ -676,8 +678,9 @@ class App:
         if self.result:
             n = len(self.result["path"]) - 1
             act = self.result["actions"][self.step - 1] if self.step > 0 else "Bắt đầu"
-            g = sum(self.result["costs"][:self.step])
-            sub = f"{self.algo}  •  Bước {self.step}/{n}  •  Hành động: {act}  •  g = {g}"
+            sub = f"{self.algo}  •  Bước {self.step}/{n}  •  Hành động: {act}"
+            if self.algo == "UCS":
+                sub += f"  •  g = {sum(self.result['costs'][:self.step])}"
             if self.step == n:
                 sub += "  •  ĐẠT ĐÍCH"
             self.text(sub, (m.x + 20, m.y + 54), self.f, C.ACCENT)
@@ -737,7 +740,8 @@ class App:
         gfx.rect(self.screen, C.TILE, (lx, ly + 26, 16, 16), border_radius=4)
         self.text("Ô chưa đúng vị trí", (lx + 24, ly + 24), self.f_small, C.MUTED)
         self.text("Hành động = hướng di chuyển của ô trống", (lx, ly + 52), self.f_small, C.MUTED)
-        self.text("Chi phí: Up/Down = 1, Left/Right = 2", (lx, ly + 74), self.f_small, C.MUTED)
+        if self.algo == "UCS":
+            self.text("Chi phí: Up/Down = 1, Left/Right = 2", (lx, ly + 74), self.f_small, C.MUTED)
     def draw_vacuum(self):
         s0, s1, t = self.current_states()
         rooms = self.room_rects()
@@ -797,7 +801,8 @@ class App:
         self.text("Đích: ('A','C','C') hoặc ('B','C','C')", (m.centerx, ty + 30), self.f, C.MUTED, center=True)
         self.text("Mỗi lượt robot làm 1 trong 3 hành động: Left, Right, Suck", (m.centerx, ty + 56),
                   self.f, C.MUTED, center=True)
-        self.text("Chi phí: Suck = 1, Left/Right = 2", (m.centerx, ty + 82), self.f, C.MUTED, center=True)
+        if self.algo == "UCS":
+            self.text("Chi phí: Suck = 1, Left/Right = 2", (m.centerx, ty + 82), self.f, C.MUTED, center=True)
 
     def draw_robot(self, x, y, sucking):
         tt = pygame.time.get_ticks() / 1000
@@ -986,7 +991,7 @@ class App:
             else:
                 i, (s, g) = item
                 self.text(f"[{i}]", (x, y), self.f_mono, C.DISABLED_FG)
-                self.text(compact_state(s), (x + 48, y), self.f_mono, C.TEXT)
+                self.text(compact_state(s), (x + (34 if is_pq else 48), y), self.f_mono, C.TEXT)
                 if is_pq:
                     self.text(f"g={g}", (lr.right - 14, y), self.f_mono, C.MUTED, right=True)
             y += row_h
